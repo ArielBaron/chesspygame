@@ -52,7 +52,7 @@ def generate_knight_moves(board, turn, square):
                 moves.append((nx, ny))
     return moves
 
-def generate_pawn_moves(board, turn, square):
+def generate_pawn_moves(board, turn, square, en_pass):
     x, y = square
     moves = []
     direction = -1 if turn == 'w' else 1
@@ -70,7 +70,11 @@ def generate_pawn_moves(board, turn, square):
         nx, ny = x + dx, y + direction
         if is_on_board(nx, ny):
             target = board[square_index(nx, ny)]
+            # Normal captures
             if is_enemy(target, turn):
+                moves.append((nx, ny))
+            # En passant capture
+            if en_pass == (nx, ny):
                 moves.append((nx, ny))
     return moves
 
@@ -88,7 +92,7 @@ def generate_king_moves(board, turn, square):
                     moves.append((nx, ny))
     return moves
 
-def generate_piece_moves(board, turn, square):
+def generate_piece_moves(board, turn, square, en_pass):
     x, y = square
     piece = board[square_index(x, y)]
     lower_piece = piece.lower()
@@ -102,8 +106,8 @@ def generate_piece_moves(board, turn, square):
     if lower_piece == 'n':
         return generate_knight_moves(board, turn, (x, y))
     if lower_piece == 'p':
-        return generate_pawn_moves(board, turn, (x, y))
+        return generate_pawn_moves(board, turn, (x, y), en_pass)
     if lower_piece == 'k':
         return generate_king_moves(board, turn, (x, y))
-    
+
     return []

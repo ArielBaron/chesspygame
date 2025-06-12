@@ -56,8 +56,8 @@ copy_timer = 0
 FONT = pygame.font.SysFont("arial", 24)
 SMALL_FONT = pygame.font.SysFont("arial", 20)
 
-MOVE_SOUND = pygame.mixer.Sound("./Assets/sound_effects/move-self.mp3")
-CAPTURE_SOUND = pygame.mixer.Sound("./Assets/sound_effects/capture.mp3")
+MOVE_SOUND = pygame.mixer.Sound(f"{base_path}/sound_effects/move-self.mp3")
+CAPTURE_SOUND = pygame.mixer.Sound(f"{base_path}/sound_effects/capture.mp3")
 
 def interpret_fen_board(fen):
     board_part = fen.split(" ")[0]
@@ -86,7 +86,7 @@ def is_select_valid(board, square, turn):
         (board[square].isupper() and turn == "w") or (board[square].islower() and turn == "b")
     )
 
-def draw_chessboard(board, flip_board=False):
+def draw_chessboard(board, flip_board=False, last_move=None):
     screen.fill(BLACK)
     for y in range(BOARD_SIZE):
         for x in range(BOARD_SIZE):
@@ -101,9 +101,10 @@ def draw_chessboard(board, flip_board=False):
                 SQUARE_SIZE,
                 SQUARE_SIZE
             )
+
             pygame.draw.rect(screen, color, rect)
 
-            if selected_square == (x, y):
+            if selected_square == (x, y) or (last_move is not None and (x, y) == last_move[0]) or (last_move is not None and (x, y) == last_move[1]):
                 highlight_color = HIGHLIGHT_LIGHT if (x + y) % 2 == 0 else HIGHLIGHT_DARK
                 pygame.draw.rect(screen, highlight_color, rect)
 
@@ -111,11 +112,11 @@ def draw_chessboard(board, flip_board=False):
             if cur_piece != '.':
                 screen.blit(pieces[cur_piece], (rect.x, rect.y))
 
+            center_x = rect.x + SQUARE_SIZE // 2
+            center_y = rect.y + SQUARE_SIZE // 2
+            radius = 10
             for move in legal_moves:
                 if move == (x, y):
-                    center_x = rect.x + SQUARE_SIZE // 2
-                    center_y = rect.y + SQUARE_SIZE // 2
-                    radius = 10
                     pygame.draw.circle(screen, (80, 80, 80), (center_x, center_y), radius)
 
 def to_index(pos):
@@ -149,6 +150,14 @@ def board_to_fen(board, turn, castling, en_passant, halfmove, fullmove):
         fen_rows.append(fen_row)
     board_part = '/'.join(fen_rows)
     return f"{board_part} {turn} {castling} {en_passant} {halfmove} {fullmove}"
+
+def get_fen_en_passent(en_pass):  # from e4
+    if en_pass == "-":
+        return ()
+    return (ord(en_pass[0].lower()) - ord('a'), 8 - int(en_pass[1]))
+
+def make_fen_en_passent(en_pass):  # from (x,y)
+    return chr(en_pass[0] + 97) + str(en_pass[1]) if en_pass != () else "-"
 
 def draw_fen_display(fen):
     global hovering_copy
@@ -204,8 +213,10 @@ def main():
     global selected_square, legal_moves, hovering_copy, show_copied, copy_timer
     fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
     board, turn, castling, en_passant, halfmove, fullmove = interpret_fen(fen)
+    en_passant = get_fen_en_passent(en_passant)
     flip_board = False
     running = True
+    last_move = None
 
     while running:
         clock.tick(FPS)
@@ -227,41 +238,70 @@ def main():
                         show_copied = True
                         copy_timer = pygame.time.get_ticks()
                     else:
-                        sq_pos = get_square_at_pos(mouse_pos, flip_board)
-                        if sq_pos is not None:
-                            sq = sq_pos[1] * BOARD_SIZE + sq_pos[0]
+                        cur_sq_pos = get_square_at_pos(mouse_pos, flip_board)
+                        if cur_sq_pos is not None:
+                            sq = cur_sq_pos[1] * BOARD_SIZE + cur_sq_pos[0]
                             if is_select_valid(board, sq, turn):
-                                selected_square = sq_pos
-                                legal_moves = generate_piece_moves(board, turn, sq_pos)
+                                selected_square = cur_sq_pos
+                                legal_moves = generate_piece_moves(board, turn, cur_sq_pos, en_passant)
 
-                            elif sq_pos in legal_moves:
-                                captured = board[to_index(sq_pos)] != '.'
+                            elif selected_square is not None and cur_sq_pos in legal_moves:
                                 moved_piece = board[to_index(selected_square)]
-                                board = update_board(board, selected_square, sq_pos)
+
+                                is_en_passant = (
+                                    moved_piece.lower() == 'p' and
+                                    cur_sq_pos == en_passant and
+                                    board[to_index(cur_sq_pos)] == '.'
+                                )
+
+                                captured = board[to_index(cur_sq_pos)] != '.' or is_en_passant
+
+                                # Handle en passant capture
+                                if is_en_passant:
+                                    # Remove the captured pawn behind the en passant square
+                                    capture_y = cur_sq_pos[1] + (1 if moved_piece.isupper() else -1)
+                                    capture_x = cur_sq_pos[0]
+                                    capture_idx = to_index((capture_x, capture_y))
+                                    board = list(board)
+                                    board[capture_idx] = '.'
+                                    board = ''.join(board)
+
+                                board = update_board(board, selected_square, cur_sq_pos)
 
                                 if captured:
                                     CAPTURE_SOUND.play()
                                 else:
                                     MOVE_SOUND.play()
+
+                                # Reset or increment halfmove clock
                                 if moved_piece.lower() == 'p' or captured:
                                     halfmove = 0
                                 else:
                                     halfmove += 1
+
+                                # Update en passant square after pawn double move
+                                if moved_piece.lower() == 'p' and abs(cur_sq_pos[1] - selected_square[1]) == 2:
+                                    en_passant = (cur_sq_pos[0], (cur_sq_pos[1] + selected_square[1]) // 2)
+                                else:
+                                    en_passant = ()
+
+                                # Update turn and fullmove
                                 if turn == 'b':
                                     fullmove += 1
                                 turn = 'b' if turn == 'w' else 'w'
-                                fen = board_to_fen(board, turn, castling, en_passant, halfmove, fullmove)
+
+                                last_move = (selected_square, cur_sq_pos)
+                                fen = board_to_fen(board, turn, castling, make_fen_en_passent(en_passant), halfmove, fullmove)
                                 legal_moves = []
                                 selected_square = None
+
                             else:
                                 selected_square = None
                                 legal_moves = []
 
-        draw_chessboard(board, flip_board)
+        draw_chessboard(board, flip_board, last_move)
         button_rect = draw_fen_display(fen)
-
         show_copied = draw_copy_feedback(show_copied, copy_timer, button_rect)
-
         pygame.display.flip()
 
     pygame.quit()
