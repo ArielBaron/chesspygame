@@ -27,7 +27,8 @@ for key in pieces:
 info = pygame.display.Info()
 WIDTH, HEIGHT = info.current_w, info.current_h
 screen = pygame.display.set_mode((WIDTH, HEIGHT), pygame.NOFRAME)
-pygame.display.set_caption("Chessboard Colors")
+pygame.display.set_caption("Chessboard")
+pygame.scrap.init()  # Enable clipboard
 
 FPS = 60
 clock = pygame.time.Clock()
@@ -48,24 +49,44 @@ HIGHLIGHT_DARK = (163, 114, 41)
 
 selected_square = None
 legal_moves = []
+hovering_copy = False
+show_copied = False
+copy_timer = 0
 
-def intrepret_fen_board(fen):
-    fen = fen.split(" ")[0]
-    intrepretion = ""
-    for c in fen:
+FONT = pygame.font.SysFont("arial", 24)
+SMALL_FONT = pygame.font.SysFont("arial", 20)
+
+MOVE_SOUND = pygame.mixer.Sound("./Assets/sound_effects/move-self.mp3")
+CAPTURE_SOUND = pygame.mixer.Sound("./Assets/sound_effects/capture.mp3")
+
+def interpret_fen_board(fen):
+    board_part = fen.split(" ")[0]
+    interpretation = ""
+    for c in board_part:
         if c == '/':
             continue
         if c.isdigit():
-            intrepretion += "." * int(c)
+            interpretation += "." * int(c)
         else:
-            intrepretion += c
-    return intrepretion
+            interpretation += c
+    return interpretation
 
-def isSelectValid(board,square,turn):
-    return board[square] !="." and (board[square].isupper() and turn == "w") or (board[square].islower() and turn=="b")
+def interpret_fen(fen):
+    parts = fen.split()
+    board = interpret_fen_board(fen)
+    turn = parts[1]
+    castling = parts[2] if len(parts) > 2 else "-"
+    en_passant = parts[3] if len(parts) > 3 else "-"
+    halfmove = int(parts[4]) if len(parts) > 4 else 0
+    fullmove = int(parts[5]) if len(parts) > 5 else 1
+    return board, turn, castling, en_passant, halfmove, fullmove
 
-def draw_chessboard(fen="rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", flip_board=False):
-    board = intrepret_fen_board(fen)
+def is_select_valid(board, square, turn):
+    return board[square] != "." and (
+        (board[square].isupper() and turn == "w") or (board[square].islower() and turn == "b")
+    )
+
+def draw_chessboard(board, flip_board=False):
     screen.fill(BLACK)
     for y in range(BOARD_SIZE):
         for x in range(BOARD_SIZE):
@@ -97,6 +118,69 @@ def draw_chessboard(fen="rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 
                     radius = 10
                     pygame.draw.circle(screen, (80, 80, 80), (center_x, center_y), radius)
 
+def to_index(pos):
+    x, y = pos
+    return y * 8 + x
+
+def update_board(board, start, end):
+    board = list(board)
+    start_idx = to_index(start)
+    end_idx = to_index(end)
+    board[end_idx] = board[start_idx]
+    board[start_idx] = '.'
+    return ''.join(board)
+
+def board_to_fen(board, turn, castling, en_passant, halfmove, fullmove):
+    fen_rows = []
+    for y in range(8):
+        row = board[y * 8:(y + 1) * 8]
+        fen_row = ''
+        empty_count = 0
+        for c in row:
+            if c == '.':
+                empty_count += 1
+            else:
+                if empty_count > 0:
+                    fen_row += str(empty_count)
+                    empty_count = 0
+                fen_row += c
+        if empty_count > 0:
+            fen_row += str(empty_count)
+        fen_rows.append(fen_row)
+    board_part = '/'.join(fen_rows)
+    return f"{board_part} {turn} {castling} {en_passant} {halfmove} {fullmove}"
+
+def draw_fen_display(fen):
+    global hovering_copy
+
+    x = 20
+    y = 0
+
+    label = FONT.render("FEN:", True, (255, 255, 255))
+    screen.blit(label, (x, y))
+
+    input_rect = pygame.Rect(x, y + 30, 900, 30)
+    pygame.draw.rect(screen, (40, 40, 40), input_rect)
+    pygame.draw.rect(screen, (200, 200, 200), input_rect, 2)
+
+    text_surf = SMALL_FONT.render(fen, True, (255, 255, 255))
+    screen.blit(text_surf, (input_rect.x + 10, input_rect.y + 5))
+
+    button_rect = pygame.Rect(input_rect.right + 10, input_rect.y, 80, 30)
+    pygame.draw.rect(screen, (60, 60, 60), button_rect)
+    pygame.draw.rect(screen, (160, 160, 160), button_rect, 2)
+
+    copy_text = SMALL_FONT.render("Copy", True, (255, 255, 255))
+    screen.blit(copy_text, (button_rect.x + 15, button_rect.y + 5))
+
+    mouse = pygame.mouse.get_pos()
+    hovering_copy = button_rect.collidepoint(mouse)
+
+    if hovering_copy:
+        hover_surf = SMALL_FONT.render("Copy to clipboard", True, (200, 200, 200))
+        screen.blit(hover_surf, (button_rect.x, button_rect.y - 25))
+
+    return button_rect
 
 def get_square_at_pos(pos, flip_board):
     mx, my = pos
@@ -109,15 +193,23 @@ def get_square_at_pos(pos, flip_board):
         return (fx, fy)
     return None
 
+def draw_copy_feedback(show_copied, copy_timer, button_rect):
+    if show_copied and pygame.time.get_ticks() - copy_timer < 1000:
+        copied_surf = SMALL_FONT.render("Copied!", True, (0, 255, 0))
+        screen.blit(copied_surf, (button_rect.x, button_rect.y + 35))
+        return True
+    return False
+
 def main():
-    global selected_square, legal_moves
+    global selected_square, legal_moves, hovering_copy, show_copied, copy_timer
     fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
-    board = intrepret_fen_board(fen)
+    board, turn, castling, en_passant, halfmove, fullmove = interpret_fen(fen)
     flip_board = False
     running = True
-    turn = "w"
+
     while running:
         clock.tick(FPS)
+        screen.fill((0, 0, 0))
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
@@ -128,17 +220,48 @@ def main():
                     flip_board = not flip_board
 
             elif event.type == pygame.MOUSEBUTTONDOWN:
-                pos = pygame.mouse.get_pos()
-                sq_pos = get_square_at_pos(pos, flip_board)
-                if sq_pos is not None:
-                    sq = sq_pos[1] * BOARD_SIZE + sq_pos[0]
-                    if isSelectValid(board,sq,turn):
-                        selected_square = sq_pos
-                        legal_moves = generate_piece_moves(board, turn, sq_pos)
+                if event.button == 1:
+                    mouse_pos = pygame.mouse.get_pos()
+                    if hovering_copy:
+                        pygame.scrap.put(pygame.SCRAP_TEXT, fen.encode())
+                        show_copied = True
+                        copy_timer = pygame.time.get_ticks()
                     else:
-                        selected_square = None
-                        legal_moves = []
-        draw_chessboard(fen, flip_board)
+                        sq_pos = get_square_at_pos(mouse_pos, flip_board)
+                        if sq_pos is not None:
+                            sq = sq_pos[1] * BOARD_SIZE + sq_pos[0]
+                            if is_select_valid(board, sq, turn):
+                                selected_square = sq_pos
+                                legal_moves = generate_piece_moves(board, turn, sq_pos)
+
+                            elif sq_pos in legal_moves:
+                                captured = board[to_index(sq_pos)] != '.'
+                                moved_piece = board[to_index(selected_square)]
+                                board = update_board(board, selected_square, sq_pos)
+
+                                if captured:
+                                    CAPTURE_SOUND.play()
+                                else:
+                                    MOVE_SOUND.play()
+                                if moved_piece.lower() == 'p' or captured:
+                                    halfmove = 0
+                                else:
+                                    halfmove += 1
+                                if turn == 'b':
+                                    fullmove += 1
+                                turn = 'b' if turn == 'w' else 'w'
+                                fen = board_to_fen(board, turn, castling, en_passant, halfmove, fullmove)
+                                legal_moves = []
+                                selected_square = None
+                            else:
+                                selected_square = None
+                                legal_moves = []
+
+        draw_chessboard(board, flip_board)
+        button_rect = draw_fen_display(fen)
+
+        show_copied = draw_copy_feedback(show_copied, copy_timer, button_rect)
+
         pygame.display.flip()
 
     pygame.quit()
