@@ -19,9 +19,9 @@ def generate_sliding_moves(board, turn, square, directions):
         while is_on_board(nx, ny):
             target = board[square_index(nx, ny)]
             if target == '.':
-                moves.append((nx, ny))
+                moves.append(((nx, ny), "QUIET"))
             elif is_enemy(target, turn):
-                moves.append((nx, ny))
+                moves.append(((nx, ny), "CAPTURE"))
                 break
             else:
                 break
@@ -48,8 +48,10 @@ def generate_knight_moves(board, turn, square):
         nx, ny = x + dx, y + dy
         if is_on_board(nx, ny):
             target = board[square_index(nx, ny)]
-            if target == '.' or is_enemy(target, turn):
-                moves.append((nx, ny))
+            if target == '.':
+                moves.append(((nx, ny), "QUIET"))
+            elif is_enemy(target, turn):
+                moves.append(((nx, ny), "CAPTURE"))
     return moves
 
 def generate_pawn_moves(board, turn, square, en_pass):
@@ -57,30 +59,37 @@ def generate_pawn_moves(board, turn, square, en_pass):
     moves = []
     direction = -1 if turn == 'w' else 1
     start_row = 6 if turn == 'w' else 1
+    promotion_row = 0 if turn == 'w' else 7
+
+    def add_move(nx, ny, move_type):
+        if ny == promotion_row:
+            moves.append(((nx, ny), "PROMOTION"))
+        else:
+            moves.append(((nx, ny), move_type))
 
     # One step forward
     if is_on_board(x, y + direction) and board[square_index(x, y + direction)] == '.':
-        moves.append((x, y + direction))
+        add_move(x, y + direction, "QUIET")
+
         # Two steps forward on first move
         if y == start_row and board[square_index(x, y + 2 * direction)] == '.':
-            moves.append((x, y + 2 * direction))
+            add_move(x, y + 2 * direction, "QUIET")
 
     # Diagonal captures
     for dx in (-1, 1):
         nx, ny = x + dx, y + direction
         if is_on_board(nx, ny):
             target = board[square_index(nx, ny)]
-            # Normal captures
             if is_enemy(target, turn):
-                moves.append((nx, ny))
-            # En passant capture
+                add_move(nx, ny, "CAPTURE")
             if en_pass == (nx, ny):
-                moves.append((nx, ny))
+                add_move(nx, ny, "CAPTURE")
     return moves
 
-def generate_king_moves(board, turn, square):
+def generate_king_moves(board, turn, square, castling_rights):
     x, y = square
     moves = []
+
     for dx in (-1, 0, 1):
         for dy in (-1, 0, 1):
             if dx == dy == 0:
@@ -88,11 +97,30 @@ def generate_king_moves(board, turn, square):
             nx, ny = x + dx, y + dy
             if is_on_board(nx, ny):
                 target = board[square_index(nx, ny)]
-                if target == '.' or is_enemy(target, turn):
-                    moves.append((nx, ny))
+                if target == '.':
+                    moves.append(((nx, ny), "QUIET"))
+                elif is_enemy(target, turn):
+                    moves.append(((nx, ny), "CAPTURE"))
+
+    # Castling (basic implementation)
+    if turn == 'w' and square == (4, 7):  # e1
+        if 'K' in castling_rights:
+            if board[square_index(5, 7)] == '.' and board[square_index(6, 7)] == '.':
+                moves.append(((6, 7), "CASTLE"))  # g1
+        if 'Q' in castling_rights:
+            if board[square_index(1, 7)] == board[square_index(2, 7)] == board[square_index(3, 7)] == '.':
+                moves.append(((2, 7), "CASTLE"))  # c1
+    elif turn == 'b' and square == (4, 0):  # e8
+        if 'k' in castling_rights:
+            if board[square_index(5, 0)] == '.' and board[square_index(6, 0)] == '.':
+                moves.append(((6, 0), "CASTLE"))  # g8
+        if 'q' in castling_rights:
+            if board[square_index(1, 0)] == board[square_index(2, 0)] == board[square_index(3, 0)] == '.':
+                moves.append(((2, 0), "CASTLE"))  # c8
+
     return moves
 
-def generate_piece_moves(board, turn, square, en_pass):
+def generate_piece_moves(board, turn, square, en_pass, castling_rights):
     x, y = square
     piece = board[square_index(x, y)]
     lower_piece = piece.lower()
@@ -108,6 +136,6 @@ def generate_piece_moves(board, turn, square, en_pass):
     if lower_piece == 'p':
         return generate_pawn_moves(board, turn, (x, y), en_pass)
     if lower_piece == 'k':
-        return generate_king_moves(board, turn, (x, y))
+        return generate_king_moves(board, turn, (x, y), castling_rights)
 
     return []
