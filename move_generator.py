@@ -17,11 +17,20 @@ def get_opponents_attacked_squares(board, color_of_victim):
                         attacked_squares.append((nx, ny))
 
             else:
-                moves = generate_piece_moves(board, color_of_enemy, (x, y), en_pass=None, castling_rights="")
+                moves = generate_piece_pseudo_legal_moves(board, color_of_enemy, (x, y), en_pass=None, castling_rights="")
                 for (nx, ny), move_type in moves:
                     attacked_squares.append((nx, ny))
     return attacked_squares
 
+def is_pseudo_legal_move_legal(board,start_square,end_square,turn):
+    # start_square and end_square are in (x,y) format (0,1) (0,3) -> a2 to a4
+    start_square, end_square = square_index(start_square), square_index(end_square)
+    fake_board = list(board)
+    fake_board[end_square] = fake_board[start_square]
+    fake_board[start_square] = '.'
+    attack_squares = get_opponents_attacked_squares(fake_board,turn)
+    victim_king = 'K' if turn == 'w' else 'k'
+    return not fake_board.index(victim_king) in list(map(square_index, attack_squares))
 
         
 
@@ -161,6 +170,51 @@ def generate_piece_moves(board, turn, square, en_pass, castling_rights):
     piece = board[square_index(x, y)]
     lower_piece = piece.lower()
 
+    pseudo_legal_moves = generate_piece_pseudo_legal_moves(board, turn, (x, y), en_pass, castling_rights)
+    legal_moves = []
+
+    for move in pseudo_legal_moves:
+        end_pos, move_type = move
+        if is_pseudo_legal_move_legal(board, square, end_pos, turn):
+            # Simulate the move
+            fake_board = list(board)
+            start_index = square_index(square)
+            end_index = square_index(end_pos)
+            fake_board[end_index] = fake_board[start_index]
+            fake_board[start_index] = '.'
+
+            # Check if the opponent is in check or checkmate
+            enemy_color = 'b' if turn == 'w' else 'w'
+            victim_king = 'k' if enemy_color == 'b' else 'K'
+
+            if victim_king in fake_board:
+                king_index = fake_board.index(victim_king)
+                attacked_squares = get_opponents_attacked_squares(fake_board, enemy_color)
+
+                if king_index in list(map(square_index, attacked_squares)):
+                    # Opponent is in check — check if they have any legal moves
+                    has_escape = False
+                    for i, p in enumerate(fake_board):
+                        if p == '.' or is_enemy(p, enemy_color):
+                            continue
+                        pos = index_square(i)
+                        if generate_piece_moves(fake_board, enemy_color, pos, en_pass, castling_rights):
+                            has_escape = True
+                            break
+                    if not has_escape:
+                        move_type = "CHECKMATE"
+                    else:
+                        move_type = "CHECK"
+
+            legal_moves.append((end_pos, move_type))
+
+    return legal_moves
+
+def generate_piece_pseudo_legal_moves(board, turn, square, en_pass, castling_rights):
+    x, y = square
+    piece = board[square_index(x, y)]
+    lower_piece = piece.lower()
+
     if lower_piece == 'b':
         return generate_bishop_moves(board, turn, (x, y))
     if lower_piece == 'r':
@@ -170,8 +224,8 @@ def generate_piece_moves(board, turn, square, en_pass, castling_rights):
     if lower_piece == 'n':
         return generate_knight_moves(board, turn, (x, y))
     if lower_piece == 'p':
-        return generate_pawn_moves(board, turn, (x, y), en_pass)
+        return generate_pawn_moves(board, turn, (x, y),en_pass)
     if lower_piece == 'k':
-        return generate_king_moves(board, turn, (x, y), castling_rights)
+        return  generate_king_moves(board, turn, (x, y),castling_rights)
 
     return []

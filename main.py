@@ -381,22 +381,18 @@ def main():
                             selected_square = cur_sq_pos
                             legal_moves = [i[0] for i in generate_piece_moves(board, turn, cur_sq_pos, en_passant, castling)]
                             full_legal_moves = generate_piece_moves(board, turn, cur_sq_pos, en_passant, castling)
-                            # king saftey check per possible move
-                            full_legal_moves = [move for move in full_legal_moves if is_pseudo_legal_move_legal(board,selected_square,move[0],turn)]
-                            legal_moves = [move for move in legal_moves if is_pseudo_legal_move_legal(board,selected_square,move,turn)]
                             
                         elif selected_square and cur_sq_pos in legal_moves:
-                            if is_pseudo_legal_move_legal(board,selected_square,cur_sq_pos,turn):
-                                type_of_move = full_legal_moves[legal_moves.index(cur_sq_pos)][1]
-                                board, turn, castling, en_passant, halfmove, fullmove = make_move(
-                                    board, selected_square, cur_sq_pos, type_of_move, en_passant, halfmove, turn, fullmove, castling)
-                                last_move = (selected_square, cur_sq_pos)
-                                fen = board_to_fen(board, turn, castling, make_fen_en_passent(en_passant), halfmove, fullmove)
-                                legal_moves = []
-                                selected_square = None
+                            type_of_move = full_legal_moves[legal_moves.index(cur_sq_pos)][1]
+                            board, turn, castling, en_passant, halfmove, fullmove = make_move(
+                                board, selected_square, cur_sq_pos, type_of_move, en_passant, halfmove, turn, fullmove, castling)
+                            last_move = (selected_square, cur_sq_pos)
+                            fen = board_to_fen(board, turn, castling, make_fen_en_passent(en_passant), halfmove, fullmove)
+                            legal_moves = []
+                            selected_square = None
 
-                                # Update attack squares only after move
-                                attack_squares = get_opponents_attacked_squares(board, turn)
+                            # Update attack squares only after move
+                            attack_squares = get_opponents_attacked_squares(board, turn)
                         else:
                             selected_square = None
                             legal_moves = []
