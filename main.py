@@ -1,7 +1,6 @@
 import pygame
 import sys
-from move_generator import generate_piece_moves
-
+from move_generator import generate_piece_moves, get_opponents_attacked_squares
 pygame.init()
 
 base_path = "Assets"
@@ -54,6 +53,7 @@ CAPTURE_SOUND = pygame.mixer.Sound(f"{base_path}/sound_effects/capture.mp3")
 PROMOTION_SOUND = pygame.mixer.Sound(f"{base_path}/sound_effects/promote.mp3")
 
 selected_square = None
+show_attacked_squares = []
 legal_moves = []
 hovering_copy = False
 show_copied = False
@@ -61,7 +61,7 @@ copy_timer = 0
 
 def draw(board, fen, flip_board, last_move, show_copied, copy_timer):
     draw_chessboard(board, flip_board, last_move)
-    button_rect = draw_fen_display(fen)
+    button_rect = draw_fen_display_and_tests(fen)
     show_copied = draw_copy_feedback(show_copied, copy_timer, button_rect)
     pygame.display.flip()
     return show_copied, button_rect
@@ -205,6 +205,7 @@ def show_promotion_menu(board, screen, promotion_square, turn):
 
 
 
+
 def make_move(board, selected_square, cur_sq_pos, type_of_move, en_passant, halfmove, turn, fullmove, castling):
     moved_piece = board[to_index(selected_square)]
 
@@ -279,6 +280,7 @@ def is_select_valid(board, square, turn):
     )
 
 def draw_chessboard(board, flip_board=False, last_move=None):
+
     screen.fill(BLACK)
     for y in range(BOARD_SIZE):
         for x in range(BOARD_SIZE):
@@ -297,8 +299,19 @@ def draw_chessboard(board, flip_board=False, last_move=None):
 
             if (x, y) in legal_moves:
                 pygame.draw.circle(screen, (80, 80, 80), (rect.centerx, rect.centery), 10)
+            if (x,y) in show_attacked_squares:
+                pygame.draw.circle(screen, (200, 0, 0), (rect.centerx, rect.centery), 10)
+def is_pseudo_legal_move_legal(board,start_square,end_square,turn):
+    # start_square and end_square are in (x,y) format (0,1) (0,3) -> a2 to a4
+    start_square, end_square = to_index(start_square), to_index(end_square)
+    fake_board = list(board)
+    fake_board[end_square] = fake_board[start_square]
+    fake_board[start_square] = '.'
+    attack_squares = get_opponents_attacked_squares(fake_board,turn)
+    victim_king = 'K' if turn == 'w' else 'k'
+    return not fake_board.index(victim_king) in list(map(to_index, attack_squares))
 
-def draw_fen_display(fen):
+def draw_fen_display_and_tests(fen):
     global hovering_copy
     x, y = 20, 0
     label = FONT.render("FEN:", True, (255, 255, 255))
@@ -310,10 +323,13 @@ def draw_fen_display(fen):
     button_rect = pygame.Rect(input_rect.right + 10, input_rect.y, 80, 30)
     pygame.draw.rect(screen, (60, 60, 60), button_rect)
     pygame.draw.rect(screen, (160, 160, 160), button_rect, 2)
+
     screen.blit(SMALL_FONT.render("Copy", True, (255, 255, 255)), (button_rect.x + 15, button_rect.y + 5))
     hovering_copy = button_rect.collidepoint(pygame.mouse.get_pos())
     if hovering_copy:
         screen.blit(SMALL_FONT.render("Copy to clipboard", True, (200, 200, 200)), (button_rect.x, button_rect.y - 25))
+
+
     return button_rect
 
 def draw_copy_feedback(show_copied, copy_timer, button_rect):
@@ -330,8 +346,11 @@ def get_square_at_pos(pos, flip_board):
         return (BOARD_SIZE - 1 - fx if flip_board else fx, BOARD_SIZE - 1 - fy if flip_board else fy)
     return None
 
+def rest_game():
+    return "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 'w', 'KQkq', '-', 0, 1
+
 def main():
-    global selected_square, legal_moves, hovering_copy, show_copied, copy_timer
+    global selected_square, legal_moves, hovering_copy, show_copied, copy_timer, show_attacked_squares
     test_fen = ""
     fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1" if test_fen == "" else test_fen
     board, turn, castling, en_passant, halfmove, fullmove = interpret_fen(fen)
@@ -339,14 +358,16 @@ def main():
     flip_board = False
     running = True
     last_move = None
+    # Calculate attack squares once at start
+    attack_squares = get_opponents_attacked_squares(board, turn)
+    show_attacked_squares  = []
 
     while running:
         clock.tick(FPS)
+        
         for event in pygame.event.get():
             if event.type == pygame.QUIT or (event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE):
                 running = False
-            elif event.type == pygame.KEYDOWN and event.key == pygame.K_f:
-                flip_board = not flip_board
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 if hovering_copy:
                     pygame.scrap.put(pygame.SCRAP_TEXT, fen.encode())
@@ -360,19 +381,43 @@ def main():
                             selected_square = cur_sq_pos
                             legal_moves = [i[0] for i in generate_piece_moves(board, turn, cur_sq_pos, en_passant, castling)]
                             full_legal_moves = generate_piece_moves(board, turn, cur_sq_pos, en_passant, castling)
-                       
+                            # king saftey check per possible move
+                            full_legal_moves = [move for move in full_legal_moves if is_pseudo_legal_move_legal(board,selected_square,move[0],turn)]
+                            legal_moves = [move for move in legal_moves if is_pseudo_legal_move_legal(board,selected_square,move,turn)]
+                            
                         elif selected_square and cur_sq_pos in legal_moves:
-                            type_of_move = full_legal_moves[legal_moves.index(cur_sq_pos)][1]
-                            board, turn, castling, en_passant, halfmove, fullmove = make_move(board, selected_square, cur_sq_pos,type_of_move, en_passant, halfmove, turn, fullmove, castling)
-                            last_move = (selected_square, cur_sq_pos)
-                            fen = board_to_fen(board, turn, castling, make_fen_en_passent(en_passant), halfmove, fullmove)
-                            legal_moves = []
-                            selected_square = None
+                            if is_pseudo_legal_move_legal(board,selected_square,cur_sq_pos,turn):
+                                type_of_move = full_legal_moves[legal_moves.index(cur_sq_pos)][1]
+                                board, turn, castling, en_passant, halfmove, fullmove = make_move(
+                                    board, selected_square, cur_sq_pos, type_of_move, en_passant, halfmove, turn, fullmove, castling)
+                                last_move = (selected_square, cur_sq_pos)
+                                fen = board_to_fen(board, turn, castling, make_fen_en_passent(en_passant), halfmove, fullmove)
+                                legal_moves = []
+                                selected_square = None
+
+                                # Update attack squares only after move
+                                attack_squares = get_opponents_attacked_squares(board, turn)
                         else:
                             selected_square = None
                             legal_moves = []
-        show_copied, button_rect = draw(board, fen, flip_board, last_move, show_copied, copy_timer)
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_f:
+                    flip_board = not flip_board
+                if event.key == pygame.K_a:
+                    show_attacked_squares = attack_squares if show_attacked_squares == [] else []
+                if event.key == pygame.K_r:
+                    # not working
+                    fen, turn, castling, en_passant, halfmove, fullmove = rest_game()
+                    board = interpret_fen(fen)
+                    show_attacked_squares = []
+                    attack_squares = []
+                    last_move = None
+                    flip_board = False
+                    legal_moves = []
 
+
+        show_copied, button_rect = draw(board, fen, flip_board, last_move, show_copied, copy_timer)
+        pygame.display.set_caption(f"Chessboard - Turn: {'White' if turn == 'w' else 'Black'}")
 
     pygame.quit()
     sys.exit()

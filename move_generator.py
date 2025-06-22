@@ -1,9 +1,45 @@
 BOARD_SIZE = 8
 
+def get_opponents_attacked_squares(board, color_of_victim):
+    attacked_squares = []
+    color_of_enemy = 'w' if color_of_victim == 'b' else 'b'
+
+    for square, piece in enumerate(board):
+        if is_enemy(piece, color_of_victim):
+            x, y = index_square(square)
+
+            if piece.lower() == 'p':  # Handle pawn separately
+                direction = -1 if piece == 'P' else 1  # White goes up, black goes down
+                for dx in (-1, 1):  # Diagonal attack directions
+                    nx = x + dx
+                    ny = y + direction
+                    if is_on_board(nx, ny):
+                        attacked_squares.append((nx, ny))
+
+            else:
+                moves = generate_piece_moves(board, color_of_enemy, (x, y), en_pass=None, castling_rights="")
+                for (nx, ny), move_type in moves:
+                    attacked_squares.append((nx, ny))
+    return attacked_squares
+
+
+        
+
 def is_on_board(x, y):
     return 0 <= x < BOARD_SIZE and 0 <= y < BOARD_SIZE
 
-def square_index(x, y):
+def index_square(square):
+    x = square % 8
+    y = square // 8
+    return (x,y)
+
+def square_index(pos, y=None):
+    if y is None:
+        x = pos[0]
+        y = pos[1]
+    else:
+        x = pos
+        #y = y
     return y * BOARD_SIZE + x
 
 def is_enemy(piece, turn):
